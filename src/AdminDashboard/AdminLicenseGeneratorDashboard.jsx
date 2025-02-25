@@ -94,46 +94,66 @@ const AdminLicenseGeneratorDashboard = () => {
     return companyNameValid && regionValid;
   };
   
+  const generateUniqueLicenseId = async (db) => {
+    let isUnique = false;
+    let licenseId = '';
+  
+    while (!isUnique) {
+      // Generate a random license ID
+      const randomDigits = Math.floor(1000 + Math.random() * 9000); // Random 4 digits
+      licenseId = `ID${randomDigits}`;
+  
+      // Check if this license ID already exists in the "testing-license-ids" collection
+      const licenseDoc = await db.collection('testing-license-ids').doc(licenseId).get();
+  
+      // If it doesn't exist, break out of the loop, the ID is unique
+      if (!licenseDoc.exists) {
+        isUnique = true;
+      }
+    }
+  
+    return licenseId;
+  };
+  
   const handleGenerateLicenses = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
-
+  
     setIsGenerating(true);
-    // Simulate license generation delay
+  
+    const db = firebase.firestore();
+    const licenses = [];
+    const timestamp = new Date();
+  
+    // Generate unique license IDs
     setTimeout(async () => {
-      const licenses = [];
       for (let i = 0; i < licenseCount; i++) {
-        const randomDigits = Math.floor(1000 + Math.random() * 9000);
-        licenses.push(`ID${randomDigits}`);
+        const uniqueLicenseId = await generateUniqueLicenseId(db);
+        licenses.push(uniqueLicenseId);
+  
+        // Save in "testing-license-ids" (each license as a separate document)
+        await db.collection('testing-license-ids').doc(uniqueLicenseId).set({
+          license: uniqueLicenseId,
+          createdAt: timestamp,
+        });
+  
+        // Save details under "testing-license-ids-details" (using company as document ID)
+        const detailsRef = db
+          .collection('testing-license-ids-details')
+          .doc(companyName)
+          .collection('licenses');
+          
+        await detailsRef.doc(uniqueLicenseId).set({
+          region: selectedRegion,
+          generatedAt: timestamp,
+          generatedBy: userEmail,
+        });
       }
+  
       setGeneratedLicenses(licenses);
       setIsGenerating(false);
       setShowLicenseModal(true);
-
-      // Save each generated license to Firestore in two collections:
-      const timestamp = new Date();
-      const db = firebase.firestore();
-      // Save in "testing-license-ids" (each license as a separate document)
-      licenses.forEach(async (license) => {
-        await db.collection('testing-license-ids').doc(license).set({
-          license,
-          createdAt: timestamp
-        });
-      });
-      // Save details under "testing-license-ids-details" (using company as document ID)
-      // Here, we store each license under a subcollection "licenses" for the company
-      const detailsRef = db
-        .collection('testing-license-ids-details')
-        .doc(companyName)
-        .collection('licenses');
-      licenses.forEach(async (license) => {
-        await detailsRef.doc(license).set({
-          region: selectedRegion,
-          generatedAt: timestamp,
-          generatedBy: userEmail
-        });
-      });
-
+  
       // Reset form fields
       setCompanyName('');
       setSelectedRegion('');
@@ -141,6 +161,7 @@ const AdminLicenseGeneratorDashboard = () => {
       setTouched({ companyName: false, selectedRegion: false });
     }, 2000);
   };
+  
   
   const handleCopyLicenses = () => {
     navigator.clipboard.writeText(generatedLicenses.join('\n'));
